@@ -10,6 +10,7 @@ let state: State = {
   characters: {},
   users: {},
   userToCharacters: {},
+  rangedAttacks: {},
 };
 interface ClientState {
   userId: string | undefined;
@@ -32,10 +33,6 @@ const sketch = (p: p5) => {
     p.background(10);
     Object.keys(state.users).forEach((userId) => {
       const user = state.users[userId];
-      if (!user) {
-        console.log(`User ${userId} not found`);
-        return;
-      }
       const color = p.color(user.color);
       const characterIds = state.userToCharacters[userId] || [];
       characterIds.forEach((characterId) => {
@@ -59,6 +56,26 @@ const sketch = (p: p5) => {
           characterDefinition.stats.health * CHARACTER_SIZE_FACTOR
         );
       });
+    });
+    Object.keys(state.rangedAttacks).forEach((fromId) => {
+      const toId = state.rangedAttacks[fromId];
+      const {
+        position: { x: x1, y: y1 },
+      } = state.characters[fromId];
+      const {
+        position: { x: x2, y: y2 },
+      } = state.characters[toId];
+      const dist = p.dist(x1, y1, x2, y2);
+      const r =
+        (CHARACTER_SIZE_FACTOR / 2) *
+        state.characters[fromId].characterDefinition.stats.health;
+      p.push();
+      p.fill(255, 0, 0);
+      p.translate(x1, y1);
+      p.rotate(p.atan2(y1 - y2, x1 - x2));
+      p.rotate(p.HALF_PI);
+      p.triangle(-r, 0, r, 0, 0, dist);
+      p.pop();
     });
   };
 };

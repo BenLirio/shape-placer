@@ -32,6 +32,7 @@ const state: State = {
   characters: {},
   users: {},
   userToCharacters: {},
+  rangedAttacks: {},
 };
 
 let prevTime = Date.now();
@@ -94,6 +95,11 @@ const removeCharacter = (characterId: string) => {
       (id) => id !== characterId
     );
   });
+  Object.entries(state.rangedAttacks).forEach(([fromId, toId]) => {
+    if (toId === characterId || fromId === characterId) {
+      delete state.rangedAttacks[fromId];
+    }
+  });
 };
 const removeUser = (userId: string) => {
   const characterIds = state.userToCharacters[userId] || [];
@@ -107,6 +113,8 @@ const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 };
 const updateState = (delta: number) => {
+  state.rangedAttacks = {};
+
   Object.keys(state.users).forEach((userId) => {
     const otherUserIds = Object.keys(state.users).filter(
       (otherUserId) => otherUserId !== userId
@@ -115,52 +123,58 @@ const updateState = (delta: number) => {
     const otherCharacterIds = otherUserIds.flatMap(
       (otherUserId) => state.userToCharacters[otherUserId] || []
     );
-    characterIds
-      .filter((characterId) => state.characters[characterId] !== undefined)
-      .forEach((characterId) => {
-        const character = state.characters[characterId];
-        const otherCharacterIdsWithDistance = otherCharacterIds
-          .filter((characterId) => state.characters[characterId] !== undefined)
-          .map((characterId) => ({
-            characterId,
-            distance: dist(
-              state.characters[characterId].position,
-              character.position
-            ),
-          }))
-          .sort((a, b) => a.distance - b.distance);
+    characterIds.forEach((characterId) => {
+      const character = state.characters[characterId];
+      const otherCharacterIdsWithDistance = otherCharacterIds
+        .map((characterId) => ({
+          characterId,
+          distance: dist(
+            state.characters[characterId].position,
+            character.position
+          ),
+        }))
+        .sort((a, b) => a.distance - b.distance);
 
-        if (otherCharacterIdsWithDistance.length > 0) {
-          const { distance, characterId: otherCharacterId } =
-            otherCharacterIdsWithDistance[0];
-          const S = character.characterDefinition.stats.speed;
-          const x1 = character.position.x;
-          const y1 = character.position.y;
-          const x2 = state.characters[otherCharacterId].position.x;
-          const y2 = state.characters[otherCharacterId].position.y;
-          const r1 =
-            (CHARACTER_SIZE_FACTOR / 2) *
-            character.characterDefinition.stats.health;
-          const r2 =
-            (CHARACTER_SIZE_FACTOR / 2) *
-            state.characters[otherCharacterId].characterDefinition.stats.health;
-          if (distance > r1 + r2) {
-            const dx = x2 - x1;
-            const dy = y2 - y1;
-            const theta = Math.atan2(dy, dx);
-            const speedFactor = 0.02;
-            const vx = delta * speedFactor * S * Math.cos(theta);
-            const vy = delta * speedFactor * S * Math.sin(theta);
-            state.characters[characterId].position.x += vx;
-            state.characters[characterId].position.y += vy;
-          } else {
+      if (otherCharacterIdsWithDistance.length > 0) {
+        const { distance, characterId: otherCharacterId } =
+          otherCharacterIdsWithDistance[0];
+        const S = character.characterDefinition.stats.speed;
+        const x1 = character.position.x;
+        const y1 = character.position.y;
+        const x2 = state.characters[otherCharacterId].position.x;
+        const y2 = state.characters[otherCharacterId].position.y;
+        const r1 =
+          (CHARACTER_SIZE_FACTOR / 2) *
+          character.characterDefinition.stats.health;
+        const r2 =
+          (CHARACTER_SIZE_FACTOR / 2) *
+          state.characters[otherCharacterId].characterDefinition.stats.health;
+        if (distance > r1 + r2) {
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const theta = Math.atan2(dy, dx);
+          const speedFactor = 0.02;
+          const vx = delta * speedFactor * S * Math.cos(theta);
+          const vy = delta * speedFactor * S * Math.sin(theta);
+          state.characters[characterId].position.x += vx;
+          state.characters[characterId].position.y += vy;
+          if (character.characterDefinition.ranged) {
+            state.rangedAttacks[characterId] = otherCharacterId;
+            const attackFactor = 0.0001;
+            const damage =
+              delta * attackFactor * character.characterDefinition.stats.attack;
+            state.characters[otherCharacterId].stats.health -= damage;
+          }
+        } else {
+          if (!character.characterDefinition.ranged) {
             const attackFactor = 0.001;
             const damage =
               delta * attackFactor * character.characterDefinition.stats.attack;
             state.characters[otherCharacterId].stats.health -= damage;
           }
         }
-      });
+      }
+    });
   });
 
   Object.keys(state.characters).forEach((characterId) => {

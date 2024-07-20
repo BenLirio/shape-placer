@@ -27,6 +27,7 @@ const state = {
     characters: {},
     users: {},
     userToCharacters: {},
+    rangedAttacks: {},
 };
 let prevTime = Date.now();
 const getDelta = () => {
@@ -79,21 +80,31 @@ const removeCharacter = (characterId) => {
     Object.keys(state.userToCharacters).forEach((userId) => {
         state.userToCharacters[userId] = state.userToCharacters[userId].filter((id) => id !== characterId);
     });
+    Object.entries(state.rangedAttacks).forEach(([fromId, toId]) => {
+        if (toId === characterId || fromId === characterId) {
+            delete state.rangedAttacks[fromId];
+        }
+    });
+};
+const removeUser = (userId) => {
+    const characterIds = state.userToCharacters[userId] || [];
+    characterIds.forEach((characterId) => {
+        removeCharacter(characterId);
+    });
+    delete state.users[userId];
 };
 const dist = (a, b) => {
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 };
 const updateState = (delta) => {
+    state.rangedAttacks = {};
     Object.keys(state.users).forEach((userId) => {
         const otherUserIds = Object.keys(state.users).filter((otherUserId) => otherUserId !== userId);
         const characterIds = state.userToCharacters[userId] || [];
         const otherCharacterIds = otherUserIds.flatMap((otherUserId) => state.userToCharacters[otherUserId] || []);
-        characterIds
-            .filter((characterId) => state.characters[characterId] !== undefined)
-            .forEach((characterId) => {
+        characterIds.forEach((characterId) => {
             const character = state.characters[characterId];
             const otherCharacterIdsWithDistance = otherCharacterIds
-                .filter((characterId) => state.characters[characterId] !== undefined)
                 .map((characterId) => ({
                 characterId,
                 distance: dist(state.characters[characterId].position, character.position),
@@ -119,11 +130,19 @@ const updateState = (delta) => {
                     const vy = delta * speedFactor * S * Math.sin(theta);
                     state.characters[characterId].position.x += vx;
                     state.characters[characterId].position.y += vy;
+                    if (character.characterDefinition.ranged) {
+                        state.rangedAttacks[characterId] = otherCharacterId;
+                        const attackFactor = 0.0001;
+                        const damage = delta * attackFactor * character.characterDefinition.stats.attack;
+                        state.characters[otherCharacterId].stats.health -= damage;
+                    }
                 }
                 else {
-                    const attackFactor = 0.001;
-                    const damage = delta * attackFactor * character.characterDefinition.stats.attack;
-                    state.characters[otherCharacterId].stats.health -= damage;
+                    if (!character.characterDefinition.ranged) {
+                        const attackFactor = 0.001;
+                        const damage = delta * attackFactor * character.characterDefinition.stats.attack;
+                        state.characters[otherCharacterId].stats.health -= damage;
+                    }
                 }
             }
         });
@@ -155,6 +174,7 @@ io.on("connection", (socket) => {
     });
     socket.on("disconnect", () => {
         console.log("User disconnected");
+        removeUser(socket.id);
     });
 });
 const PORT = process.env.PORT || 3000;

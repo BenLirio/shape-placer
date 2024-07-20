@@ -13,4 +13,5 @@ export interface State {
   characters: Record<CharacterId, CharacterState>;
   users: Record<UserId, User>;
   userToCharacters: Record<UserId, CharacterId[]>;
+  rangedAttacks: Record<CharacterId, CharacterId>;
 }
