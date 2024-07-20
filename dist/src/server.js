@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -17,9 +8,13 @@ require("openai/shims/node");
 const openai_1 = __importDefault(require("openai"));
 const http_1 = __importDefault(require("http"));
 const socket_io_1 = require("socket.io");
-const shapes_1 = require("../interface/shapes");
 const events_1 = require("../interface/events");
 const canvas_1 = require("../interface/canvas");
+const character_1 = require("../interface/character");
+const uuid_1 = require("uuid");
+const randomcolor_1 = __importDefault(require("randomcolor"));
+const constants_1 = require("../interface/constants");
+const newColor = () => (0, randomcolor_1.default)({ luminosity: "light" });
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
 const io = new socket_io_1.Server(server);
@@ -27,16 +22,20 @@ const openai = new openai_1.default({
     apiKey: process.env.OPENAI_API_KEY,
 });
 app.use(express_1.default.static("public"));
-const squares = [];
-const generateSquare = (prompt) => __awaiter(void 0, void 0, void 0, function* () {
-    const systemPrompt = `A square interface looks like this: \`${shapes_1.SquareString}\`. Based on the users prompt, create JSON that can be cast into a Square interface. Also keep in mind that the canvas looks like this ${JSON.stringify(canvas_1.canvas)}
-`;
-    const completion = yield openai.chat.completions.create({
+const state = {
+    squares: [],
+    characters: {},
+    users: {},
+    userToCharacters: {},
+};
+const generateCharacterDefinition = async (prompt) => {
+    const systemPrompt = `Your goal is to generate a CharacterDefinition that looks like this: \`${character_1.CHARACTER_DEFINITION_STRING}\` based on the user's prompt. The CharacterDefinition should have the following stats: health, speed, and attack. Each stat should be a number between 0 and 1. Make sure that you return valid json that can be cast into a CharacterDefinition.`;
+    const completion = await openai.chat.completions.create({
         messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: prompt },
         ],
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         response_format: {
             type: "json_object",
         },
@@ -45,20 +44,95 @@ const generateSquare = (prompt) => __awaiter(void 0, void 0, void 0, function* (
     if (!content) {
         throw new Error("No content in completion");
     }
-    return (0, shapes_1.toSquare)(JSON.parse(content));
+    return (0, character_1.toCharacterDefinition)(JSON.parse(content));
+};
+const addCharacter = (userId) => (characterDefinition) => {
+    const character = {
+        characterDefinition: {
+            stats: {
+                ...characterDefinition.stats,
+            },
+        },
+        stats: characterDefinition.stats,
+        position: {
+            x: Math.random() * canvas_1.canvas.width,
+            y: Math.random() * canvas_1.canvas.height,
+        },
+    };
+    const characterId = (0, uuid_1.v4)();
+    state.characters[characterId] = character;
+    state.userToCharacters[userId] = state.userToCharacters[userId] || [];
+    state.userToCharacters[userId].push(characterId);
+};
+const removeCharacter = (characterId) => {
+    delete state.characters[characterId];
+    Object.keys(state.userToCharacters).forEach((userId) => {
+        state.userToCharacters[userId] = state.userToCharacters[userId].filter((id) => id !== characterId);
+    });
+};
+const dist = (a, b) => {
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+};
+const updateState = () => {
+    Object.keys(state.users).forEach((userId) => {
+        const otherUserIds = Object.keys(state.users).filter((otherUserId) => otherUserId !== userId);
+        const characterIds = state.userToCharacters[userId] || [];
+        const otherCharacterIds = otherUserIds.flatMap((otherUserId) => state.userToCharacters[otherUserId] || []);
+        characterIds
+            .filter((characterId) => state.characters[characterId] !== undefined)
+            .forEach((characterId) => {
+            const character = state.characters[characterId];
+            const otherCharacterIdsWithDistance = otherCharacterIds
+                .filter((characterId) => state.characters[characterId] !== undefined)
+                .map((characterId) => ({
+                characterId,
+                distance: dist(state.characters[characterId].position, character.position),
+            }))
+                .sort((a, b) => a.distance - b.distance);
+            if (otherCharacterIdsWithDistance.length > 0) {
+                const { distance, characterId: otherCharacterId } = otherCharacterIdsWithDistance[0];
+                const S = character.stats.speed;
+                const x1 = character.position.x;
+                const y1 = character.position.y;
+                const x2 = state.characters[otherCharacterId].position.x;
+                const y2 = state.characters[otherCharacterId].position.y;
+                const r1 = constants_1.CHARACTER_SIZE_FACTOR * character.characterDefinition.stats.health;
+                const r2 = constants_1.CHARACTER_SIZE_FACTOR *
+                    state.characters[otherCharacterId].characterDefinition.stats.health;
+                if (distance > r1 + r2) {
+                    const dx = x2 - x1;
+                    const dy = y2 - y1;
+                    const theta = Math.atan2(dy, dx);
+                    const vx = S * Math.cos(theta);
+                    const vy = S * Math.sin(theta);
+                    state.characters[characterId].position.x += vx;
+                    state.characters[characterId].position.y += vy;
+                }
+            }
+        });
+    });
+    Object.keys(state.characters).forEach((characterId) => {
+        const character = state.characters[characterId];
+        if (character.stats.health <= 0) {
+            removeCharacter(characterId);
+        }
+    });
+    io.emit(events_1.EventType.SET_STATE, state);
+};
+setTimeout(() => {
+    setInterval(() => {
+        updateState();
+    }, 200);
 });
 io.on("connection", (socket) => {
-    console.log("A user connected");
-    socket.on(events_1.EventType.CREATE_SHAPE, (shape) => {
-        console.log(shape);
-        squares.push(shape);
-        io.emit(events_1.EventType.CREATE_SHAPE, shape);
+    console.log(`Socket connected: ${socket.id}`);
+    state.users[socket.id] = {
+        color: newColor(),
+    };
+    socket.on(events_1.EventType.PROMPT_CREATE_CHARACTER, async (prompt) => {
+        const characterDefinition = await generateCharacterDefinition(prompt);
+        addCharacter(socket.id)(characterDefinition);
     });
-    socket.on(events_1.EventType.CREATE_SQUARE_PROMPT, (prompt) => __awaiter(void 0, void 0, void 0, function* () {
-        const square = yield generateSquare(prompt);
-        console.log(square);
-        socket.emit(events_1.EventType.ADD_SQUARE, square);
-    }));
     socket.on("chat message", (msg) => {
         io.emit("chat message", msg);
     });
