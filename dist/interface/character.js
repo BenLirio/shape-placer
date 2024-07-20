@@ -5,7 +5,8 @@ const isCharacterDefinition = (shape) => {
     return (typeof shape.stats === "object" &&
         typeof shape.stats.health === "number" &&
         typeof shape.stats.speed === "number" &&
-        typeof shape.stats.attack === "number");
+        typeof shape.stats.attack === "number" &&
+        typeof shape.ranged === "boolean");
 };
 const toCharacterDefinition = (shape) => {
     if (!isCharacterDefinition(shape)) {
@@ -20,5 +21,6 @@ exports.CHARACTER_DEFINITION_STRING = `export interface CharacterDefinition {
     speed: number; // 0 to 1
     attack: number; // 0 to 1
   };
+  ranged: boolean;
 }`;
 //# sourceMappingURL=character.js.map

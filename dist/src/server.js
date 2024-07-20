@@ -28,6 +28,13 @@ const state = {
     users: {},
     userToCharacters: {},
 };
+let prevTime = Date.now();
+const getDelta = () => {
+    const currentTime = Date.now();
+    const delta = currentTime - prevTime;
+    prevTime = currentTime;
+    return delta;
+};
 const generateCharacterDefinition = async (prompt) => {
     const systemPrompt = `Your goal is to generate a CharacterDefinition that looks like this: \`${character_1.CHARACTER_DEFINITION_STRING}\` based on the user's prompt. The CharacterDefinition should have the following stats: health, speed, and attack. Each stat should be a number between 0 and 1. Make sure that you return valid json that can be cast into a CharacterDefinition.`;
     const completion = await openai.chat.completions.create({
@@ -49,11 +56,14 @@ const generateCharacterDefinition = async (prompt) => {
 const addCharacter = (userId) => (characterDefinition) => {
     const character = {
         characterDefinition: {
+            ...characterDefinition,
             stats: {
                 ...characterDefinition.stats,
             },
         },
-        stats: characterDefinition.stats,
+        stats: {
+            health: characterDefinition.stats.health,
+        },
         position: {
             x: Math.random() * canvas_1.canvas.width,
             y: Math.random() * canvas_1.canvas.height,
@@ -73,7 +83,7 @@ const removeCharacter = (characterId) => {
 const dist = (a, b) => {
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 };
-const updateState = () => {
+const updateState = (delta) => {
     Object.keys(state.users).forEach((userId) => {
         const otherUserIds = Object.keys(state.users).filter((otherUserId) => otherUserId !== userId);
         const characterIds = state.userToCharacters[userId] || [];
@@ -91,22 +101,29 @@ const updateState = () => {
                 .sort((a, b) => a.distance - b.distance);
             if (otherCharacterIdsWithDistance.length > 0) {
                 const { distance, characterId: otherCharacterId } = otherCharacterIdsWithDistance[0];
-                const S = character.stats.speed;
+                const S = character.characterDefinition.stats.speed;
                 const x1 = character.position.x;
                 const y1 = character.position.y;
                 const x2 = state.characters[otherCharacterId].position.x;
                 const y2 = state.characters[otherCharacterId].position.y;
-                const r1 = constants_1.CHARACTER_SIZE_FACTOR * character.characterDefinition.stats.health;
-                const r2 = constants_1.CHARACTER_SIZE_FACTOR *
+                const r1 = (constants_1.CHARACTER_SIZE_FACTOR / 2) *
+                    character.characterDefinition.stats.health;
+                const r2 = (constants_1.CHARACTER_SIZE_FACTOR / 2) *
                     state.characters[otherCharacterId].characterDefinition.stats.health;
                 if (distance > r1 + r2) {
                     const dx = x2 - x1;
                     const dy = y2 - y1;
                     const theta = Math.atan2(dy, dx);
-                    const vx = S * Math.cos(theta);
-                    const vy = S * Math.sin(theta);
+                    const speedFactor = 0.02;
+                    const vx = delta * speedFactor * S * Math.cos(theta);
+                    const vy = delta * speedFactor * S * Math.sin(theta);
                     state.characters[characterId].position.x += vx;
                     state.characters[characterId].position.y += vy;
+                }
+                else {
+                    const attackFactor = 0.001;
+                    const damage = delta * attackFactor * character.characterDefinition.stats.attack;
+                    state.characters[otherCharacterId].stats.health -= damage;
                 }
             }
         });
@@ -121,8 +138,8 @@ const updateState = () => {
 };
 setTimeout(() => {
     setInterval(() => {
-        updateState();
-    }, 200);
+        updateState(getDelta());
+    }, 100);
 });
 io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);

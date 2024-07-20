@@ -11,6 +11,7 @@ import {
   CharacterDefinition,
   CHARACTER_DEFINITION_STRING,
   toCharacterDefinition,
+  CharacterState,
 } from "../interface/character";
 import { v4 as uuidv4 } from "uuid";
 import randomColor from "randomcolor";
@@ -65,13 +66,16 @@ const generateCharacterDefinition = async (
 };
 const addCharacter =
   (userId: string) => (characterDefinition: CharacterDefinition) => {
-    const character = {
+    const character: CharacterState = {
       characterDefinition: {
+        ...characterDefinition,
         stats: {
           ...characterDefinition.stats,
         },
       },
-      stats: characterDefinition.stats,
+      stats: {
+        health: characterDefinition.stats.health,
+      },
       position: {
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
@@ -91,6 +95,14 @@ const removeCharacter = (characterId: string) => {
     );
   });
 };
+const removeUser = (userId: string) => {
+  const characterIds = state.userToCharacters[userId] || [];
+  characterIds.forEach((characterId) => {
+    removeCharacter(characterId);
+  });
+  delete state.users[userId];
+};
+
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 };
@@ -121,7 +133,7 @@ const updateState = (delta: number) => {
         if (otherCharacterIdsWithDistance.length > 0) {
           const { distance, characterId: otherCharacterId } =
             otherCharacterIdsWithDistance[0];
-          const S = character.stats.speed;
+          const S = character.characterDefinition.stats.speed;
           const x1 = character.position.x;
           const y1 = character.position.y;
           const x2 = state.characters[otherCharacterId].position.x;
@@ -143,7 +155,8 @@ const updateState = (delta: number) => {
             state.characters[characterId].position.y += vy;
           } else {
             const attackFactor = 0.001;
-            const damage = delta * attackFactor * character.stats.attack;
+            const damage =
+              delta * attackFactor * character.characterDefinition.stats.attack;
             state.characters[otherCharacterId].stats.health -= damage;
           }
         }
@@ -181,6 +194,7 @@ io.on("connection", (socket: Socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected");
+    removeUser(socket.id);
   });
 });
 
