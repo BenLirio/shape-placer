@@ -1,0 +1,19 @@
+body {
+  font: 14px sans-serif;
+}
+ul {
+  list-style-type: none;
+  padding: 0;
+}
+li {
+  padding: 8px;
+  margin-bottom: 10px;
+  background: #f4f4f4;
+}
+input {
+  padding: 10px;
+  width: 90%;
+}
+button {
+  padding: 10px;
+}
